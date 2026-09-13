@@ -1,0 +1,15 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# pnpm blocks postinstall scripts by default. These four need them: Prisma
+# fetches and links its query engine binary, esbuild its native binary.
+allowBuilds:
+  "@prisma/client": true
+  "@prisma/engines": true
+  esbuild: true
+  prisma: true
+  # Set to false by create-next-app; flip to true if image optimization (sharp)
+  # or the eslint native resolver is needed.
+  sharp: false
+  unrs-resolver: false

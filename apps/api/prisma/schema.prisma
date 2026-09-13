@@ -1,0 +1,73 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Since Prisma 7 the connection URL lives in prisma.config.ts (for Migrate)
+// and in the driver adapter handed to the PrismaClient constructor (at
+// runtime). The schema now describes shape only.
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  ADMIN
+  EDITOR
+  AUTHOR
+}
+
+enum PostStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+/// Bounded context: auth. The editorial context only ever reads id + name
+/// from here, through its own minimal Author model.
+model User {
+  id        String   @id @db.Uuid
+  name      String
+  email     String   @unique
+  role      UserRole @default(AUTHOR)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  posts Post[]
+
+  @@map("users")
+}
+
+/// Bounded context: editorial. Aggregate root.
+model Post {
+  id          String     @id @db.Uuid
+  title       String
+  slug        String     @unique
+  body        String
+  status      PostStatus @default(DRAFT)
+  authorId    String     @db.Uuid
+  publishedAt DateTime?
+  createdAt   DateTime
+  // Not @updatedAt: the aggregate owns its own timestamps, the database does
+  // not get to mutate domain state behind the model's back.
+  updatedAt   DateTime
+
+  author   User      @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  comments Comment[]
+
+  @@index([status, publishedAt(sort: Desc)])
+  @@index([authorId])
+  @@map("posts")
+}
+
+/// Part of the Post aggregate: no independent lifecycle, hence the cascade.
+model Comment {
+  id         String   @id @db.Uuid
+  postId     String   @db.Uuid
+  authorName String
+  body       String
+  createdAt  DateTime
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId, createdAt])
+  @@map("comments")
+}
