@@ -1,29 +1,41 @@
-import { AggregateRoot } from '../../../shared/domain/aggregate-root.js';
-import { UniqueEntityId } from '../../../shared/domain/unique-entity-id.js';
+import { randomUUID, type UUID } from 'node:crypto';
+import type {
+  DomainEvent,
+  EmitsDomainEvents,
+} from '../../../shared/domain/domain-event.js';
 import type { Actor } from './actor.js';
 import type { Author } from './author.js';
 import { Comment, type CommentSnapshot } from './comment.js';
 import {
   CommentNotFoundError,
   CommentsClosedError,
+  EmptyPostBodyError,
   ForbiddenPostActionError,
+  InvalidPostTitleError,
+  InvalidSlugError,
   PostAlreadyPublishedError,
   PostNotPublishableError,
 } from './errors.js';
 import { PostPublished } from './events/post-published.js';
-import { PostBody } from './value-objects/post-body.js';
-import { PostTitle } from './value-objects/post-title.js';
-import { Slug } from './value-objects/slug.js';
 
 export type PostStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
 
+const MAX_TITLE_LENGTH = 140;
+const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/**
+ * A draft can be any length, but the platform publishes long-form writing:
+ * anything shorter than this is a note, not an article.
+ */
+const MIN_PUBLISHABLE_BODY_LENGTH = 500;
+
 export interface PostSnapshot {
-  id: string;
+  id: UUID;
   title: string;
   slug: string;
   body: string;
   status: PostStatus;
-  authorId: string;
+  authorId: UUID;
   publishedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -31,11 +43,11 @@ export interface PostSnapshot {
 }
 
 interface PostProps {
-  title: PostTitle;
-  slug: Slug;
-  body: PostBody;
+  title: string;
+  slug: string;
+  body: string;
   status: PostStatus;
-  authorId: UniqueEntityId;
+  authorId: UUID;
   publishedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -43,28 +55,31 @@ interface PostProps {
 }
 
 /**
- * Aggregate root of the editorial context.
+ * The editorial context's central entity.
  *
- * Every state change goes through a method that names a business intent. There
- * are no setters, and there is no way to reach a comment except through the
- * post that owns it.
+ * Every state change goes through a method that names a business intent; there
+ * are no setters. The constructor is private, so every path that produces a
+ * Post runs the same normalisation — an invalid Post cannot exist in memory.
+ *
+ * Comments are owned here: there is no way to reach one except through the
+ * post it belongs to, which is what lets `addComment` refuse a draft.
  */
-export class Post extends AggregateRoot {
+export class Post implements EmitsDomainEvents {
+  #events: DomainEvent[] = [];
+
   private constructor(
-    id: UniqueEntityId,
+    readonly id: UUID,
     private readonly props: PostProps,
-  ) {
-    super(id);
-  }
+  ) {}
 
   static draft(input: { title: string; body: string; author: Author }): Post {
-    const title = PostTitle.create(input.title);
+    const title = Post.normalizeTitle(input.title);
     const now = new Date();
 
-    return new Post(UniqueEntityId.create(), {
+    return new Post(randomUUID(), {
       title,
-      slug: Slug.fromTitle(title.value),
-      body: PostBody.create(input.body),
+      slug: Post.slugify(title),
+      body: Post.normalizeBody(input.body),
       status: 'DRAFT',
       authorId: input.author.id,
       publishedAt: null,
@@ -75,12 +90,12 @@ export class Post extends AggregateRoot {
   }
 
   static restore(snapshot: PostSnapshot): Post {
-    return new Post(UniqueEntityId.restore(snapshot.id), {
-      title: PostTitle.create(snapshot.title),
-      slug: Slug.restore(snapshot.slug),
-      body: PostBody.create(snapshot.body),
+    return new Post(snapshot.id, {
+      title: snapshot.title,
+      slug: snapshot.slug,
+      body: snapshot.body,
       status: snapshot.status,
-      authorId: UniqueEntityId.restore(snapshot.authorId),
+      authorId: snapshot.authorId,
       publishedAt: snapshot.publishedAt,
       createdAt: snapshot.createdAt,
       updatedAt: snapshot.updatedAt,
@@ -92,18 +107,18 @@ export class Post extends AggregateRoot {
     this.assertCanManage(actor);
 
     if (this.props.status === 'PUBLISHED') {
-      throw new PostAlreadyPublishedError(this.id.toString());
+      throw new PostAlreadyPublishedError(this.id);
     }
     if (this.props.status === 'ARCHIVED') {
       throw new PostNotPublishableError(
-        this.id.toString(),
+        this.id,
         'an archived post must be restored to draft first',
       );
     }
-    if (!this.props.body.isLongEnoughToPublish()) {
+    if (this.props.body.length < MIN_PUBLISHABLE_BODY_LENGTH) {
       throw new PostNotPublishableError(
-        this.id.toString(),
-        `the body has ${this.props.body.length} characters and the minimum is ${PostBody.MIN_PUBLISHABLE_LENGTH}`,
+        this.id,
+        `the body has ${this.props.body.length} characters and the minimum is ${MIN_PUBLISHABLE_BODY_LENGTH}`,
       );
     }
 
@@ -112,10 +127,10 @@ export class Post extends AggregateRoot {
     this.props.publishedAt = publishedAt;
     this.touch(publishedAt);
 
-    this.record(
-      new PostPublished(this.id.toString(), publishedAt, {
-        slug: this.props.slug.value,
-        authorId: this.props.authorId.toString(),
+    this.#events.push(
+      new PostPublished(this.id, publishedAt, {
+        slug: this.props.slug,
+        authorId: this.props.authorId,
       }),
     );
   }
@@ -143,18 +158,18 @@ export class Post extends AggregateRoot {
     this.assertCanManage(actor);
 
     if (input.title !== undefined) {
-      this.props.title = PostTitle.create(input.title);
+      this.props.title = Post.normalizeTitle(input.title);
 
       // Once published, the slug is a public address: renaming the post must
       // not break inbound links. Drafts have no audience yet, so their slug
       // follows the title.
       if (this.props.status === 'DRAFT') {
-        this.props.slug = Slug.fromTitle(this.props.title.value);
+        this.props.slug = Post.slugify(this.props.title);
       }
     }
 
     if (input.body !== undefined) {
-      this.props.body = PostBody.create(input.body);
+      this.props.body = Post.normalizeBody(input.body);
     }
 
     this.touch();
@@ -162,7 +177,7 @@ export class Post extends AggregateRoot {
 
   addComment(input: { authorName: string; body: string }): Comment {
     if (this.props.status !== 'PUBLISHED') {
-      throw new CommentsClosedError(this.id.toString());
+      throw new CommentsClosedError(this.id);
     }
 
     const comment = Comment.create({
@@ -177,38 +192,44 @@ export class Post extends AggregateRoot {
     return comment;
   }
 
-  removeComment(commentId: UniqueEntityId, actor: Actor): void {
+  removeComment(commentId: UUID, actor: Actor): void {
     this.assertCanManage(actor);
 
-    const index = this.props.comments.findIndex((comment) =>
-      comment.id.equals(commentId),
+    const index = this.props.comments.findIndex(
+      (comment) => comment.id === commentId,
     );
 
     if (index === -1) {
-      throw new CommentNotFoundError(commentId.toString());
+      throw new CommentNotFoundError(commentId);
     }
 
     this.props.comments.splice(index, 1);
     this.touch();
   }
 
-  get title(): string {
-    return this.props.title.value;
+  pullEvents(): DomainEvent[] {
+    const events = this.#events;
+    this.#events = [];
+    return events;
   }
 
-  get slug(): Slug {
+  get title(): string {
+    return this.props.title;
+  }
+
+  get slug(): string {
     return this.props.slug;
   }
 
   get body(): string {
-    return this.props.body.value;
+    return this.props.body;
   }
 
   get status(): PostStatus {
     return this.props.status;
   }
 
-  get authorId(): UniqueEntityId {
+  get authorId(): UUID {
     return this.props.authorId;
   }
 
@@ -222,12 +243,12 @@ export class Post extends AggregateRoot {
 
   toSnapshot(): PostSnapshot {
     return {
-      id: this.id.toString(),
-      title: this.props.title.value,
-      slug: this.props.slug.value,
-      body: this.props.body.value,
+      id: this.id,
+      title: this.props.title,
+      slug: this.props.slug,
+      body: this.props.body,
       status: this.props.status,
-      authorId: this.props.authorId.toString(),
+      authorId: this.props.authorId,
       publishedAt: this.props.publishedAt,
       createdAt: this.props.createdAt,
       updatedAt: this.props.updatedAt,
@@ -238,12 +259,50 @@ export class Post extends AggregateRoot {
   /** Authors manage the posts they wrote; editors and admins manage all. */
   private assertCanManage(actor: Actor): void {
     if (actor.canModerate()) return;
-    if (actor.id.equals(this.props.authorId)) return;
+    if (actor.id === this.props.authorId) return;
 
-    throw new ForbiddenPostActionError(actor.id.toString(), this.id.toString());
+    throw new ForbiddenPostActionError(actor.id, this.id);
   }
 
   private touch(at: Date = new Date()): void {
     this.props.updatedAt = at;
+  }
+
+  private static normalizeTitle(raw: string): string {
+    const value = raw.trim().replace(/\s+/g, ' ');
+
+    if (value.length === 0) {
+      throw new InvalidPostTitleError('A post title cannot be empty.');
+    }
+    if (value.length > MAX_TITLE_LENGTH) {
+      throw new InvalidPostTitleError(
+        `A post title must be at most ${MAX_TITLE_LENGTH} characters, got ${value.length}.`,
+      );
+    }
+    return value;
+  }
+
+  private static normalizeBody(raw: string): string {
+    const value = raw.trim();
+
+    if (value.length === 0) {
+      throw new EmptyPostBodyError();
+    }
+    return value;
+  }
+
+  private static slugify(title: string): string {
+    const value = title
+      .normalize('NFKD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, ' ')
+      .trim()
+      .replace(/[\s-]+/g, '-');
+
+    if (!SLUG_PATTERN.test(value)) {
+      throw new InvalidSlugError(title);
+    }
+    return value;
   }
 }

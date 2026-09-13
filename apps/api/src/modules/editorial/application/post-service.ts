@@ -1,5 +1,5 @@
+import type { UUID } from 'node:crypto';
 import type { DomainEventBus } from '../../../shared/application/domain-event-bus.js';
-import { UniqueEntityId } from '../../../shared/domain/unique-entity-id.js';
 import type { Actor } from '../domain/actor.js';
 import {
   AuthorNotFoundError,
@@ -8,8 +8,11 @@ import {
 } from '../domain/errors.js';
 import { Post, type PostSnapshot } from '../domain/post.js';
 import type { AuthorRepository } from '../domain/repositories/author-repository.js';
-import type { PostRepository } from '../domain/repositories/post-repository.js';
-import { Slug } from '../domain/value-objects/slug.js';
+import type {
+  PostRepository,
+  PublishedPostDetail,
+  PublishedPostPage,
+} from '../domain/repositories/post-repository.js';
 import type {
   AddCommentInput,
   CreatePostInput,
@@ -17,14 +20,14 @@ import type {
 } from './dtos.js';
 
 /**
- * Application service for the Post aggregate — commands only.
+ * The single door into the editorial context.
  *
- * It decides nothing about the business: it loads the aggregate, calls the
- * method that names the intent, persists, and dispatches whatever the
- * aggregate recorded. Every rule lives one layer below, in `Post`.
+ * It decides nothing about the business: it loads the post, calls the method
+ * that names the intent, persists, and dispatches whatever the post recorded.
+ * Every rule lives one layer below, inside `Post`.
  *
- * Reads live in `PostQueryService`, which keeps this class under the
- * seven-method ceiling set in docs/architecture/backend.md.
+ * Storage concerns it deliberately does not own: pagination limits and
+ * database error translation belong to the repository implementation.
  */
 export class PostService {
   constructor(
@@ -34,9 +37,7 @@ export class PostService {
   ) {}
 
   async create(input: CreatePostInput): Promise<PostSnapshot> {
-    const author = await this.authors.findById(
-      UniqueEntityId.restore(input.authorId),
-    );
+    const author = await this.authors.findById(input.authorId);
     if (!author) {
       throw new AuthorNotFoundError(input.authorId);
     }
@@ -51,14 +52,14 @@ export class PostService {
     // real guard against the race, and the repository translates its violation
     // into this same error.
     if (await this.posts.existsWithSlug(post.slug)) {
-      throw new SlugAlreadyTakenError(post.slug.value);
+      throw new SlugAlreadyTakenError(post.slug);
     }
 
     return this.persist(post);
   }
 
   async revise(
-    postId: string,
+    postId: UUID,
     input: RevisePostInput,
     actor: Actor,
   ): Promise<PostSnapshot> {
@@ -68,21 +69,21 @@ export class PostService {
     return this.persist(post);
   }
 
-  async publish(postId: string, actor: Actor): Promise<PostSnapshot> {
+  async publish(postId: UUID, actor: Actor): Promise<PostSnapshot> {
     const post = await this.load(postId);
     post.publish(actor);
 
     return this.persist(post);
   }
 
-  async archive(postId: string, actor: Actor): Promise<PostSnapshot> {
+  async archive(postId: UUID, actor: Actor): Promise<PostSnapshot> {
     const post = await this.load(postId);
     post.archive(actor);
 
     return this.persist(post);
   }
 
-  async restoreToDraft(postId: string, actor: Actor): Promise<PostSnapshot> {
+  async restoreToDraft(postId: UUID, actor: Actor): Promise<PostSnapshot> {
     const post = await this.load(postId);
     post.restoreToDraft(actor);
 
@@ -90,26 +91,45 @@ export class PostService {
   }
 
   async addComment(slug: string, input: AddCommentInput): Promise<PostSnapshot> {
-    const post = await this.loadBySlug(slug);
+    const post = await this.posts.findBySlug(slug);
+    if (!post) {
+      throw new PostNotFoundError(slug);
+    }
+
     post.addComment(input);
 
     return this.persist(post);
   }
 
   async removeComment(
-    postId: string,
-    commentId: string,
+    postId: UUID,
+    commentId: UUID,
     actor: Actor,
   ): Promise<PostSnapshot> {
     const post = await this.load(postId);
-    post.removeComment(UniqueEntityId.restore(commentId), actor);
+    post.removeComment(commentId, actor);
 
     return this.persist(post);
   }
 
+  listPublished(params: {
+    limit?: number | undefined;
+    cursor?: string | undefined;
+  }): Promise<PublishedPostPage> {
+    return this.posts.listPublished(params);
+  }
+
+  async getPublishedBySlug(slug: string): Promise<PublishedPostDetail> {
+    const post = await this.posts.findPublishedViewBySlug(slug);
+    if (!post) {
+      throw new PostNotFoundError(slug);
+    }
+    return post;
+  }
+
   /**
-   * Saves the aggregate, then dispatches its events. The order matters: an
-   * event must never announce a state that failed to persist.
+   * Saves, then dispatches. The order matters: an event must never announce a
+   * state that failed to persist.
    */
   private async persist(post: Post): Promise<PostSnapshot> {
     await this.posts.save(post);
@@ -118,18 +138,10 @@ export class PostService {
     return post.toSnapshot();
   }
 
-  private async load(postId: string): Promise<Post> {
-    const post = await this.posts.findById(UniqueEntityId.restore(postId));
+  private async load(postId: UUID): Promise<Post> {
+    const post = await this.posts.findById(postId);
     if (!post) {
       throw new PostNotFoundError(postId);
-    }
-    return post;
-  }
-
-  private async loadBySlug(slug: string): Promise<Post> {
-    const post = await this.posts.findBySlug(Slug.restore(slug));
-    if (!post) {
-      throw new PostNotFoundError(slug);
     }
     return post;
   }

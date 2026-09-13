@@ -15,7 +15,7 @@ com três camadas de responsabilidade estrita.
 ```text
 src/
 ├── shared/                      # blocos de construção, sem regra de negócio
-│   ├── domain/                  # Entity, AggregateRoot, UniqueEntityId, DomainEvent, DomainError
+│   ├── domain/                  # DomainEvent, EmitsDomainEvents, DomainError
 │   ├── application/             # contratos transversais (DomainEventBus)
 │   └── infrastructure/          # Prisma client, error handler HTTP, guards
 ├── modules/
@@ -34,8 +34,12 @@ src/
 Apenas código puro da linguagem. **Nenhum** import de framework, ORM ou
 biblioteca de terceiros.
 
-Contém: Entidades, Value Objects, Aggregate Roots, Domain Events, erros de
-domínio e as **interfaces** dos repositórios.
+Contém: Entidades, Domain Events, erros de domínio e as **interfaces** dos
+repositórios.
+
+**Sem Value Objects e sem classes-base.** Normalização e invariante de
+propriedade moram como métodos estáticos privados na própria entidade
+(`Post.normalizeTitle`, `Post.slugify`). Ver "Validação dentro da entidade".
 
 **Regra de ouro:** é onde a regra de negócio se decide. `post.publish()` valida
 estado, autorização de propriedade e tamanho mínimo antes de mudar o status.
@@ -81,9 +85,9 @@ são conteúdo, fronteira sem força), `blog` (acopla ao formato atual do produt
 | Fluxo de revisão (autor → editor aprova) | ✅ | ⚠️ revisão não é publicação |
 | Rascunho colaborativo | ✅ | ❌ |
 
-### Application Service por Aggregate Root (não Use Case por classe)
+### Um service por entidade, não um Use Case por classe
 
-**Decisão:** a camada de aplicação usa um *service* por Aggregate Root
+**Decisão:** a camada de aplicação usa um *service* por entidade raiz
 (`PostService`), não uma classe por caso de uso (`CreatePostUseCase`,
 `PublishPostUseCase`, ...).
 
@@ -100,24 +104,32 @@ linhas. Ele não incha porque não há o que inchar.
 
 **Guardrails obrigatórios:**
 
-1. **Um service por Aggregate Root**, não por módulo. `PostService`, nunca um
+1. **Um service por entidade raiz**, não por módulo. `PostService`, nunca um
    `EditorialService` guarda-chuva.
 2. **Service não decide regra.** Ver o teste rápido acima.
-3. **Teto duro:** mais de 5 dependências no construtor **ou** mais de 7 métodos
-   públicos → dividir por sub-assunto.
+3. **Teto duro: mais de 5 dependências no construtor** → dividir por
+   sub-assunto. Contagem de métodos **não** é critério: leitura e escrita da
+   mesma entidade compartilham a mesma porta.
 4. **Nome de método = intenção**, não CRUD. `publish()`, `archive()` —
    nunca `updateStatus()`.
-5. **A transação mora no service** (unit of work). Nunca na entidade, nunca no
-   controller.
+5. **Regra de storage não sobe pro service.** Limite de paginação e tradução de
+   erro de banco vivem na implementação do repositório; o service orquestra
+   fluxo.
 
 **Escape hatch:** se um fluxo específico ficar gordo — publicação com
 agendamento, notificação e invalidação de cache, por exemplo — extrai-se **só
 ele** como use case dedicado. O híbrido é legítimo.
 
-> Aplicação do guardrail 3: as leituras não ficam no `PostService`. Elas vivem
-> em `PostQueryService`, sobre um repositório de leitura que projeta DTOs
-> direto do banco. Listar posts publicados não precisa hidratar agregados com
-> todos os comentários.
+> **Leitura e escrita na mesma porta.** `PostService` expõe comandos
+> (`publish`, `addComment`) e leituras (`listPublished`) juntos. Um
+> `PostQueryService` separado existiu e foi removido: para leitura ele só
+> repassava argumento, que é exatamente a camada-cerimônia que este documento
+> quer evitar.
+>
+> O que **não** se mistura é o formato de retorno: comando carrega e devolve a
+> entidade; leitura devolve projeção (`PublishedPostListItem`), montada por um
+> `select` que traz só as colunas da view. Listar posts não hidrata entidade
+> nem carrega comentário nenhum.
 
 ### Modelo rico, nunca anêmico
 
@@ -127,22 +139,118 @@ Entidades não são caixas de propriedades com getters e setters.
 Props ficam privadas. A persistência lê o estado por `toSnapshot()` e reconstrói
 por `Post.restore()` — sem abrir setters para o mundo.
 
-### Ciclo de vida do agregado: `Post` é a raiz, `Comment` faz parte dele
+### Validação dentro da entidade, não em Value Objects
+
+Regra de propriedade mora na própria entidade, como método estático privado:
+
+```ts
+private static normalizeTitle(raw: string): string { ... }
+private static slugify(title: string): string { ... }
+```
+
+O construtor é `private`, então **todo** caminho que produz um `Post` passa por
+`draft()` ou `restore()` e roda a mesma normalização. Consequência: não existe
+`Post` inválido em memória, e a garantia não depende de validação na borda HTTP
+— um seed, um handler de evento ou um comando de CLI recebem a mesma proteção.
+
+Houve `PostTitle`, `PostBody` e `Slug` como Value Objects. Foram removidos:
+duas dessas classes só faziam `trim` e checagem de tamanho, que o schema Zod da
+rota já cobria. A terceira (`Slug`) tinha lógica real, mas ela cabe como método
+estático sem precisar de um tipo próprio.
+
+**Quando um VO voltaria a se justificar:** quando o valor precisar circular
+sozinho entre entidades, carregando comportamento junto. Enquanto ele só existe
+como propriedade de uma entidade, é cerimônia.
+
+### `Post` é dono de `Comment`
 
 Um comentário não tem ciclo de vida independente do post. Toda operação com
-comentários passa pelo agregado: `post.addComment(...)`,
-`post.removeComment(...)`.
+comentários passa pelo post: `post.addComment(...)`, `post.removeComment(...)`.
 
 Consequências:
 
-- Não existe `CommentRepository`. `PostRepository.save(post)` persiste o
-  agregado inteiro, comentários inclusos, numa transação.
-- `Comment` tem `onDelete: Cascade` no schema — reflexo do agregado no banco.
+- Não existe `CommentRepository`. `PostRepository.save(post)` persiste post e
+  comentários como uma unidade.
+- `Comment` tem `onDelete: Cascade` no schema — o mesmo fato, refletido no banco.
 
 **Sinal de alerta:** no dia em que comentário ganhar ciclo de vida próprio —
-fila de moderação, threading, autor autenticado, reações — ele sai do agregado
-e vira contexto separado (`engagement`). O sintoma concreto é precisar de um
-`CommentRepository`: se essa necessidade aparecer, o agregado já quebrou.
+fila de moderação, threading, autor autenticado, reações — ele deixa de
+pertencer ao post e vira contexto separado (`engagement`). O sintoma concreto é
+precisar de um `CommentRepository`.
+
+### Transação por caso de uso, não por agregado
+
+A regra clássica de DDD — **um agregado por transação** — foi **descartada**.
+
+Aqui uma transação cobre o processo inteiro dentro de um contexto, quantas
+entidades ele precisar tocar. O que se ganha com a regra clássica (menos
+contenção de lock, fronteira pronta para distribuir o contexto em serviço
+separado) é teórico na escala deste sistema; o que se paga (consistência
+eventual entre partes que o usuário enxerga como uma coisa só) é imediato.
+
+O que **fica** da ideia de agregado é o encapsulamento: `Post` é a única porta
+para `Comment`. É isso que faz `addComment` conseguir recusar um draft — e não
+tem relação com fronteira transacional.
+
+**Como o código suporta isso:** o repositório recebe
+`PrismaClient | Prisma.TransactionClient`.
+
+```ts
+constructor(private readonly db: PrismaExecutor) {}
+
+withTransaction(tx: Prisma.TransactionClient): PrismaPostRepository {
+  return new PrismaPostRepository(tx);
+}
+```
+
+`save()` detecta em qual dos dois está: dentro de uma transação, participa dela;
+fora, abre a sua própria, para que uma escrita avulsa continue atômica.
+
+Com isso a camada de aplicação pode orquestrar várias escritas — sequenciais ou
+paralelas — sob uma transação só, sem que nenhuma linha do domínio mude. O
+`UnitOfWork` propriamente dito só entra quando existir um caso de uso que
+precise dele; hoje nenhum precisa.
+
+### Domain Events: Observer, sem classe-base
+
+Emitir evento é **capacidade, não herança**. Não existe `AggregateRoot` para
+estender: a entidade declara a interface `EmitsDomainEvents` e guarda o próprio
+buffer.
+
+```ts
+export class Post implements EmitsDomainEvents {
+  #events: DomainEvent[] = [];
+
+  pullEvents(): DomainEvent[] { ... }
+}
+```
+
+Como TypeScript é estruturalmente tipado, uma entidade que já expõe
+`pullEvents()` satisfaz a interface sem declarar `implements` — a cláusula é
+escrita mesmo assim, como documentação de intenção. Isso também significa que
+**adiar abstração custa zero**: uma interface criada depois passa a ser
+satisfeita retroativamente, sem tocar nas classes.
+
+As três peças:
+
+| Papel | Onde |
+| --- | --- |
+| **Emissor** | a entidade — `this.#events.push(...)` |
+| **Dispatcher** | `InProcessDomainEventBus` — `Map<eventName, handler[]>` |
+| **Handler** | o módulo que **reage**, registrado no `composition-root.ts` |
+
+`PostService.persist()` salva e só então despacha: um evento nunca anuncia um
+estado que falhou em persistir.
+
+**Handler que lança não derruba a operação.** O fato já aconteceu e já foi
+persistido; uma reação que falha é logada e os demais handlers seguem. Essa
+tolerância é também o limite: hoje um handler que falha se perde. Transformar
+"logado e perdido" em "retentado até passar" é o que exige broker com outbox.
+
+**Handler não importa o evento do módulo emissor** — importar acoplaria os
+contextos. Ele lê `event.payload` e valida com um schema Zod próprio. Handler de
+integração também precisa de **idempotência**: broker reentrega, e reprocessar
+`UserCreated` não pode gerar dois posts de boas-vindas.
 
 ### Desacoplamento entre módulos: `Author`, não `User`
 

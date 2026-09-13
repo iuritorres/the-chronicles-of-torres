@@ -1,6 +1,5 @@
 import type { FastifyError, FastifyInstance } from 'fastify';
 import { DomainError } from '../../domain/domain-error.js';
-import { InvalidEntityIdError } from '../../domain/unique-entity-id.js';
 
 /**
  * Under a type provider the handler receives `unknown`, which is honest: a
@@ -48,13 +47,6 @@ export function registerErrorHandler(app: FastifyInstance): void {
         code: 'VALIDATION_ERROR',
         message: 'The request payload is invalid.',
         issues: fastifyError.validation,
-      });
-    }
-
-    if (error instanceof InvalidEntityIdError) {
-      return reply.status(400).send({
-        code: error.code,
-        message: error.message,
       });
     }
 

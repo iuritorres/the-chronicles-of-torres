@@ -1,16 +1,16 @@
-import { UniqueEntityId } from '../../../shared/domain/unique-entity-id.js';
+import type { UUID } from 'node:crypto';
 
 /**
- * Minimal projection of a user, owned by the editorial context.
- * Bound to the auth context by id only.
+ * Minimal projection of a user, owned by the editorial context and bound to
+ * the auth context by id alone.
  */
 export class Author {
   private constructor(
-    readonly id: UniqueEntityId,
+    readonly id: UUID,
     readonly name: string,
   ) {}
 
-  static restore(props: { id: string; name: string }): Author {
-    return new Author(UniqueEntityId.restore(props.id), props.name);
+  static restore(props: { id: UUID; name: string }): Author {
+    return new Author(props.id, props.name);
   }
 }

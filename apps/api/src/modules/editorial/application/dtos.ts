@@ -1,7 +1,9 @@
+import type { UUID } from 'node:crypto';
+
 export interface CreatePostInput {
   title: string;
   body: string;
-  authorId: string;
+  authorId: UUID;
 }
 
 export interface RevisePostInput {

@@ -1,8 +1,8 @@
+import type { UUID } from 'node:crypto';
 import type { FastifyRequest } from 'fastify';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { requireActor } from '../../../../shared/infrastructure/http/require-actor.js';
-import type { PostQueryService } from '../../application/post-query-service.js';
 import type { PostService } from '../../application/post-service.js';
 import { Actor } from '../../domain/actor.js';
 
@@ -50,9 +50,11 @@ const postIdParams = z.object({ postId: z.string().uuid() });
 const slugParams = z.object({ slug: z.string().min(1) });
 
 /**
- * The transport layer translates a transport-level principal into the
- * editorial context's own `Actor`. No other module's user type crosses
- * this boundary.
+ * Translates a transport-level principal into the editorial context's own
+ * `Actor`. No other module's user type crosses this boundary.
+ *
+ * The id is asserted rather than parsed because `requireActor` only accepts a
+ * principal whose id already passed validation.
  */
 function actorOf(request: FastifyRequest): Actor {
   const { principal } = request;
@@ -61,17 +63,16 @@ function actorOf(request: FastifyRequest): Actor {
       'actorOf was called on a route that does not run the requireActor preHandler.',
     );
   }
-  return Actor.create(principal);
+  return Actor.create({ id: principal.id as UUID, role: principal.role });
 }
 
 export interface PostRoutesOptions {
   postService: PostService;
-  postQueryService: PostQueryService;
 }
 
 export const postRoutes: FastifyPluginAsyncZod<PostRoutesOptions> = async (
   app,
-  { postService, postQueryService },
+  { postService },
 ) => {
   app.get(
     '/',
@@ -92,7 +93,7 @@ export const postRoutes: FastifyPluginAsyncZod<PostRoutesOptions> = async (
       },
     },
     async (request) =>
-      postQueryService.listPublished({
+      postService.listPublished({
         limit: request.query.limit,
         cursor: request.query.cursor,
       }),
@@ -108,7 +109,7 @@ export const postRoutes: FastifyPluginAsyncZod<PostRoutesOptions> = async (
         response: { 200: publishedPostDetail },
       },
     },
-    async (request) => postQueryService.getPublishedBySlug(request.params.slug),
+    async (request) => postService.getPublishedBySlug(request.params.slug),
   );
 
   app.post(
@@ -149,7 +150,7 @@ export const postRoutes: FastifyPluginAsyncZod<PostRoutesOptions> = async (
       const post = await postService.create({
         title: request.body.title,
         body: request.body.body,
-        authorId: actorOf(request).id.toString(),
+        authorId: actorOf(request).id,
       });
       return reply.status(201).send(post);
     },
@@ -177,7 +178,7 @@ export const postRoutes: FastifyPluginAsyncZod<PostRoutesOptions> = async (
     },
     async (request) =>
       postService.revise(
-        request.params.postId,
+        request.params.postId as UUID,
         request.body,
         actorOf(request),
       ),
@@ -195,7 +196,7 @@ export const postRoutes: FastifyPluginAsyncZod<PostRoutesOptions> = async (
       },
     },
     async (request) =>
-      postService.publish(request.params.postId, actorOf(request)),
+      postService.publish(request.params.postId as UUID, actorOf(request)),
   );
 
   app.post(
@@ -210,7 +211,7 @@ export const postRoutes: FastifyPluginAsyncZod<PostRoutesOptions> = async (
       },
     },
     async (request) =>
-      postService.archive(request.params.postId, actorOf(request)),
+      postService.archive(request.params.postId as UUID, actorOf(request)),
   );
 
   app.post(
@@ -225,7 +226,10 @@ export const postRoutes: FastifyPluginAsyncZod<PostRoutesOptions> = async (
       },
     },
     async (request) =>
-      postService.restoreToDraft(request.params.postId, actorOf(request)),
+      postService.restoreToDraft(
+        request.params.postId as UUID,
+        actorOf(request),
+      ),
   );
 
   app.delete(
@@ -241,8 +245,8 @@ export const postRoutes: FastifyPluginAsyncZod<PostRoutesOptions> = async (
     },
     async (request) =>
       postService.removeComment(
-        request.params.postId,
-        request.params.commentId,
+        request.params.postId as UUID,
+        request.params.commentId as UUID,
         actorOf(request),
       ),
   );

@@ -59,7 +59,6 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(postRoutes, {
     prefix: '/posts',
     postService: container.postService,
-    postQueryService: container.postQueryService,
   });
 
   return app;

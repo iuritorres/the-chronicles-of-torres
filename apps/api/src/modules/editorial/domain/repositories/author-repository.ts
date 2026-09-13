@@ -1,4 +1,5 @@
-import type { UniqueEntityId } from '../../../../shared/domain/unique-entity-id.js';
+import type { UUID } from 'node:crypto';
+
 import type { Author } from '../author.js';
 
 /**
@@ -8,5 +9,5 @@ import type { Author } from '../author.js';
  * above this line.
  */
 export interface AuthorRepository {
-  findById(id: UniqueEntityId): Promise<Author | null>;
+  findById(id: UUID): Promise<Author | null>;
 }
