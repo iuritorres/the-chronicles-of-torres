@@ -1,6 +1,5 @@
 import type { UUID } from 'node:crypto';
-
-export type ActorRole = 'ADMIN' | 'EDITOR' | 'AUTHOR';
+import { UserRole } from '@prisma/client';
 
 /**
  * The editorial context's own view of "who is acting".
@@ -12,15 +11,15 @@ export type ActorRole = 'ADMIN' | 'EDITOR' | 'AUTHOR';
 export class Actor {
   private constructor(
     readonly id: UUID,
-    readonly role: ActorRole,
+    readonly role: UserRole,
   ) {}
 
-  static create(props: { id: UUID; role: ActorRole }): Actor {
+  static create(props: { id: UUID; role: UserRole }): Actor {
     return new Actor(props.id, props.role);
   }
 
   /** Editors and admins curate anyone's content; authors only their own. */
   canModerate(): boolean {
-    return this.role === 'ADMIN' || this.role === 'EDITOR';
+    return this.role === UserRole.ADMIN || this.role === UserRole.EDITOR;
   }
 }

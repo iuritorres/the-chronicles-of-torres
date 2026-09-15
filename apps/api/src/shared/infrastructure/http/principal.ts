@@ -1,4 +1,4 @@
-export type PrincipalRole = 'ADMIN' | 'EDITOR' | 'AUTHOR';
+import type { UserRole } from '@prisma/client';
 
 /**
  * Whoever the transport layer believes is making the request.
@@ -9,7 +9,7 @@ export type PrincipalRole = 'ADMIN' | 'EDITOR' | 'AUTHOR';
  */
 export interface Principal {
   id: string;
-  role: PrincipalRole;
+  role: UserRole;
 }
 
 declare module 'fastify' {

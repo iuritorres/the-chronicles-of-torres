@@ -1,4 +1,5 @@
 import { randomUUID, type UUID } from 'node:crypto';
+import { PostStatus } from '@prisma/client';
 import type {
   DomainEvent,
   EmitsDomainEvents,
@@ -17,8 +18,6 @@ import {
   PostNotPublishableError,
 } from './errors.js';
 import { PostPublished } from './events/post-published.js';
-
-export type PostStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
 
 const MAX_TITLE_LENGTH = 140;
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -80,7 +79,7 @@ export class Post implements EmitsDomainEvents {
       title,
       slug: Post.slugify(title),
       body: Post.normalizeBody(input.body),
-      status: 'DRAFT',
+      status: PostStatus.DRAFT,
       authorId: input.author.id,
       publishedAt: null,
       createdAt: now,
@@ -106,10 +105,10 @@ export class Post implements EmitsDomainEvents {
   publish(actor: Actor): void {
     this.assertCanManage(actor);
 
-    if (this.props.status === 'PUBLISHED') {
+    if (this.props.status === PostStatus.PUBLISHED) {
       throw new PostAlreadyPublishedError(this.id);
     }
-    if (this.props.status === 'ARCHIVED') {
+    if (this.props.status === PostStatus.ARCHIVED) {
       throw new PostNotPublishableError(
         this.id,
         'an archived post must be restored to draft first',
@@ -123,7 +122,7 @@ export class Post implements EmitsDomainEvents {
     }
 
     const publishedAt = new Date();
-    this.props.status = 'PUBLISHED';
+    this.props.status = PostStatus.PUBLISHED;
     this.props.publishedAt = publishedAt;
     this.touch(publishedAt);
 
@@ -138,18 +137,18 @@ export class Post implements EmitsDomainEvents {
   archive(actor: Actor): void {
     this.assertCanManage(actor);
 
-    if (this.props.status === 'ARCHIVED') return;
+    if (this.props.status === PostStatus.ARCHIVED) return;
 
-    this.props.status = 'ARCHIVED';
+    this.props.status = PostStatus.ARCHIVED;
     this.touch();
   }
 
   restoreToDraft(actor: Actor): void {
     this.assertCanManage(actor);
 
-    if (this.props.status === 'DRAFT') return;
+    if (this.props.status === PostStatus.DRAFT) return;
 
-    this.props.status = 'DRAFT';
+    this.props.status = PostStatus.DRAFT;
     this.props.publishedAt = null;
     this.touch();
   }
@@ -163,7 +162,7 @@ export class Post implements EmitsDomainEvents {
       // Once published, the slug is a public address: renaming the post must
       // not break inbound links. Drafts have no audience yet, so their slug
       // follows the title.
-      if (this.props.status === 'DRAFT') {
+      if (this.props.status === PostStatus.DRAFT) {
         this.props.slug = Post.slugify(this.props.title);
       }
     }
@@ -176,7 +175,7 @@ export class Post implements EmitsDomainEvents {
   }
 
   addComment(input: { authorName: string; body: string }): Comment {
-    if (this.props.status !== 'PUBLISHED') {
+    if (this.props.status !== PostStatus.PUBLISHED) {
       throw new CommentsClosedError(this.id);
     }
 

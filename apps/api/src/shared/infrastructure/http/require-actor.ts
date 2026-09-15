@@ -1,8 +1,8 @@
+import { UserRole } from '@prisma/client';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { env } from '../../../config/env.js';
-import type { PrincipalRole } from './principal.js';
 
-const ROLES: readonly PrincipalRole[] = ['ADMIN', 'EDITOR', 'AUTHOR'];
+const ROLES: readonly UserRole[] = Object.values(UserRole);
 
 /**
  * TEMPORARY DEVELOPMENT STUB — this is not authentication.
@@ -38,7 +38,7 @@ export async function requireActor(
   if (
     typeof id !== 'string' ||
     typeof role !== 'string' ||
-    !ROLES.includes(role as PrincipalRole)
+    !ROLES.includes(role as UserRole)
   ) {
     await reply.status(401).send({
       code: 'UNAUTHENTICATED',
@@ -48,5 +48,5 @@ export async function requireActor(
     return;
   }
 
-  request.principal = { id, role: role as PrincipalRole };
+  request.principal = { id, role: role as UserRole };
 }

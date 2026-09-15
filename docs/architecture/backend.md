@@ -20,7 +20,7 @@ src/
 │   └── infrastructure/          # Prisma client, error handler HTTP, guards
 ├── modules/
 │   └── editorial/
-│       ├── domain/              # ⬅ zero dependência externa
+│       ├── domain/              # ⬅ só os enums gerados pelo Prisma
 │       ├── application/         # ⬅ depende só de domain
 │       └── infrastructure/      # ⬅ depende de tudo, implementa as interfaces
 ├── config/env.ts
@@ -31,8 +31,20 @@ src/
 
 ### 1. `domain/` — o coração
 
-Apenas código puro da linguagem. **Nenhum** import de framework, ORM ou
-biblioteca de terceiros.
+Código puro da linguagem, com **uma exceção deliberada**: os enums gerados
+pelo Prisma (`PostStatus`, `UserRole`) são importados de `@prisma/client`.
+
+O schema é a definição única desses valores. Redeclará-los aqui criava uma
+segunda cópia livre para divergir em silêncio, e o re-export que mascarava a
+origem não era trava nem isolamento — só indireção a mais para manter. A troca
+de ORM não está prevista, e o acoplamento foi aceito com isso em vista.
+
+Consequência prática: `domain/` passa a carregar o client em runtime, então
+`prisma generate` virou pré-requisito de `typecheck` e `test`, não só de
+`build`.
+
+Fora esses enums: **nenhum** import de framework, de biblioteca de terceiros
+ou de API do ORM.
 
 Contém: Entidades, Domain Events, erros de domínio e as **interfaces** dos
 repositórios.
@@ -269,7 +281,8 @@ conhecer nada sobre senhas, sessões, OAuth ou providers de SSO.
 `infrastructure/` as implementa.
 
 A direção das setas é sempre para dentro: infra → application → domain.
-O domínio não aponta para ninguém.
+Fora dos enums gerados pelo Prisma (ver seção 1), o domínio não aponta para
+ninguém.
 
 ### Prisma 7: URL fora do schema, conexão por driver adapter
 

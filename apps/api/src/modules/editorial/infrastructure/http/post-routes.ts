@@ -1,4 +1,5 @@
 import type { UUID } from 'node:crypto';
+import { PostStatus } from '@prisma/client';
 import type { FastifyRequest } from 'fastify';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -38,7 +39,7 @@ const postSnapshot = z.object({
   title: z.string(),
   slug: z.string(),
   body: z.string(),
-  status: z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']),
+  status: z.nativeEnum(PostStatus),
   authorId: z.string(),
   publishedAt: z.date().nullable(),
   createdAt: z.date(),
