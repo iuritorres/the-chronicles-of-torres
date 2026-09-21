@@ -1,0 +1,10 @@
+# Not a workspace declaration — this project stands alone. pnpm 11 reads
+# settings like allowBuilds only from this file, not from package.json or
+# .npmrc, so it exists purely to record the decision below.
+#
+# pnpm blocks postinstall scripts by default. sharp is only needed for image
+# optimisation and unrs-resolver for the eslint native resolver; neither is in
+# use. Flip an entry to true when that changes.
+allowBuilds:
+  sharp: false
+  unrs-resolver: false

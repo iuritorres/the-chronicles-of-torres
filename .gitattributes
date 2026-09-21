@@ -1,0 +1,17 @@
+# Normalise line endings in the repository to LF regardless of the OS the
+# commit came from. Without this, the same file committed from Windows and
+# from Linux produces a whole-file diff.
+* text=auto eol=lf
+
+# Binary files must never be touched by the conversion above.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
+
+# Lockfiles are generated: collapse them in diffs and reviews.
+pnpm-lock.yaml linguist-generated=true -diff

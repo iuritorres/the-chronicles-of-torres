@@ -1,0 +1,66 @@
+# ---------------------------------------------------------------- node / web
+node_modules/
+.pnpm-store/
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+.vercel
+
+# ------------------------------------------------------------------ .NET api
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Ll]og/
+[Ll]ogs/
+artifacts/
+project.lock.json
+project.fragment.lock.json
+*.nupkg
+*.snupkg
+*.binlog
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.VisualState.xml
+TestResult.xml
+nunit-*.xml
+CodeCoverage/
+ScaffoldingReadMe.txt
+
+# Per-environment appsettings hold secrets; only the base file is committed.
+appsettings.Development.json
+appsettings.Staging.json
+appsettings.Production.json
+
+# ----------------------------------------------------------------------- env
+.env
+.env.*
+!.env.example
+
+# ---------------------------------------------------------------------- logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# ------------------------------------------------------------- os / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+~$*
+*~
+
+# ------------------------------------------------------------------ coverage
+coverage/

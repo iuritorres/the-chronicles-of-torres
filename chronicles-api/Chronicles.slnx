@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Chronicles.Core/Chronicles.Core.csproj" />
+    <Project Path="src/Chronicles.Domain/Chronicles.Domain.csproj" />
+    <Project Path="src/Chronicles.Services/Chronicles.Services.csproj" />
+    <Project Path="src/Chronicles.WebApi/Chronicles.WebApi.csproj" />
+  </Folder>
+</Solution>
