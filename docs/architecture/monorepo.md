@@ -1,7 +1,8 @@
 # Estratégia de Monorepo
 
 > Status: **aceito** · Data: 2026-09-21
-> Substitui a decisão de 2026-09-12, arquivada em `../../../the-chronicles-of-torres-old`.
+> Substitui a decisão de 2026-09-12, arquivada no branch
+> [`archive/fastify-prisma`](https://github.com/iuritorres/the-chronicles-of-torres/tree/archive/fastify-prisma).
 
 ## Contexto
 
@@ -88,7 +89,8 @@ o propósito do projeto — o blog existe para documentar aprendizado, e o
 aprendizado buscado aqui é C# / .NET, não mais um backend TypeScript.
 
 Custo aceito: o contexto `editorial` já implementado em TypeScript precisa ser
-portado. O repositório antigo permanece como referência de modelagem.
+portado. O branch `archive/fastify-prisma` permanece como referência de
+modelagem.
 
 ### Persistência fica em aberto
 
@@ -99,8 +101,8 @@ Isso é decisão, não pendência esquecida. Escolher o mecanismo de persistênc
 antes de existir um modelo de domínio em C# seria escolher no vácuo — a
 decisão espera o contexto `editorial` tomar forma. Até lá a API não tem estado.
 
-O `docker-compose.yml` do repositório antigo é o ponto de partida quando o
-Postgres voltar.
+O `docker-compose.yml` do branch `archive/fastify-prisma` é o ponto de partida
+quando o Postgres voltar.
 
 ### Sem task runner e sem raiz Node
 

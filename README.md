@@ -81,6 +81,11 @@ choice of how to store it is deliberately still open.
 
 An earlier version of this platform lived as a Fastify + Prisma API with the
 `editorial` context implemented end to end, against a Postgres container. It
-was archived, not deleted — see `../the-chronicles-of-torres-old`. Its domain
-model is the reference when the editorial context is rebuilt here, and its
-`docker-compose.yml` is where the Postgres setup can be recovered from.
+was archived, not deleted: the history lives on the
+[`archive/fastify-prisma`](https://github.com/iuritorres/the-chronicles-of-torres/tree/archive/fastify-prisma)
+branch, unrelated to `main` — a separate root, kept for reference only.
+
+Its domain model is the reference when the editorial context is rebuilt here,
+and its
+[`docker-compose.yml`](https://github.com/iuritorres/the-chronicles-of-torres/blob/archive/fastify-prisma/docker-compose.yml)
+is where the Postgres setup can be recovered from.
