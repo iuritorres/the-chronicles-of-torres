@@ -1,5 +1,8 @@
 using Chronicles.Core.IoC;
+using DotNetEnv;
 using Scalar.AspNetCore;
+
+Env.TraversePath().Load();
 
 var builder = WebApplication.CreateBuilder(args);
 
